@@ -68,6 +68,7 @@ namespace evf {
     std::string stream_label_;
     std::string events_base_filename_;
     std::string baseDir_;
+    bool microMergeActive_;
     std::string smpath_;
     std::string jsonDefPath_;
     IntJ processed_;
@@ -85,6 +86,7 @@ namespace evf {
     c_(new Consumer(ps)),
     stream_label_(ps.getParameter<std::string>("@module_label")),
     baseDir_(ps.getUntrackedParameter<std::string>("baseDir","")),
+    microMergeActive_(ps.getUntrackedParameter<bool>("microMergeActive",true)),
     processed_(0),
     accepted_(0),
     filelist_("")
@@ -183,41 +185,43 @@ namespace evf {
     int b;
     // move dat file to one level up - this is VERRRRRY inefficient, come up with a smarter idea
     std::string fullDataOutputPath = smpath_ + "/open/" + filelist_.value();
-    FILE *des = edm::Service<evf::EvFDaqDirector>()->maybeCreateAndLockFileHeadForStream(ls.luminosityBlock(),stream_label_);
-    FILE *src = fopen(fullDataOutputPath.c_str(),"r");
-    if(des != 0 && src !=0){
-      while((b=fgetc(src))!= EOF){
-	fputc((unsigned char)b,des);
+    if(microMergeActive_){
+      FILE *des = edm::Service<evf::EvFDaqDirector>()->maybeCreateAndLockFileHeadForStream(ls.luminosityBlock(),stream_label_);
+      FILE *src = fopen(fullDataOutputPath.c_str(),"r");
+      if(des != 0 && src !=0){
+	while((b=fgetc(src))!= EOF){
+	  fputc((unsigned char)b,des);
+	}
       }
+      edm::Service<evf::EvFDaqDirector>()->unlockAndCloseMergeStream();
+      fclose(src);
+      //remove file
+      remove(fullDataOutputPath.c_str());
     }
-    edm::Service<evf::EvFDaqDirector>()->unlockAndCloseMergeStream();
-    fclose(src);
-    //remove file
-    remove(fullDataOutputPath.c_str());
+    else{
+      boost::filesystem::path openDatPath(fullDataOutputPath); 
+      boost::filesystem::path closedDatPath(openDatPath.parent_path().parent_path());
+      closedDatPath /= openDatPath.filename(); 
+      boost::filesystem::rename(openDatPath, closedDatPath);
+    }
 
-/* 	boost::filesystem::path openDatPath(fullDataOutputPath); */
-/* 	boost::filesystem::path closedDatPath( */
-/* 			openDatPath.parent_path().parent_path()); */
-/* 	closedDatPath /= openDatPath.filename(); */
-/* 	boost::filesystem::rename(openDatPath, closedDatPath); */
-
-	// output jsn file
-	processed_.value() = fms_->getEventsProcessedForLumi(ls.luminosityBlock());
-	jsonMonitor_->snap(false, "");
-	std::stringstream outputJsonNameStream;
-	string runDirName = fms_->getRunDirName();
-	outputJsonNameStream << smpath_ << "/";
-	outputJsonNameStream << runDirName << "_ls" << std::setfill('0')
-			<< std::setw(4) << ls.luminosityBlock() << "_" << stream_label_
-			<< "_pid" << std::setfill('0') << std::setw(5) << getpid()
-			<< ".jsn";
-	jsonMonitor_->outputFullHistoDataPoint(outputJsonNameStream.str());
-
-	// reset monitoring params
-	accepted_.value() = 0;
-	filelist_ = "";
+    // output jsn file
+    processed_.value() = fms_->getEventsProcessedForLumi(ls.luminosityBlock());
+    jsonMonitor_->snap(false, "");
+    std::stringstream outputJsonNameStream;
+    string runDirName = fms_->getRunDirName();
+    outputJsonNameStream << smpath_ << "/";
+    outputJsonNameStream << runDirName << "_ls" << std::setfill('0')
+			 << std::setw(4) << ls.luminosityBlock() << "_" << stream_label_
+			 << "_pid" << std::setfill('0') << std::setw(5) << getpid()
+			 << ".jsn";
+    jsonMonitor_->outputFullHistoDataPoint(outputJsonNameStream.str());
+    
+    // reset monitoring params
+    accepted_.value() = 0;
+    filelist_ = "";
   }
-
+  
 } // end of namespace-edm
 
 #endif
