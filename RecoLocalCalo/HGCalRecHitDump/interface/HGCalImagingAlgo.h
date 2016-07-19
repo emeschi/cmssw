@@ -10,6 +10,7 @@
 #include "Geometry/CaloGeometry/interface/CaloCellGeometry.h"
 #include "Geometry/CaloGeometry/interface/TruncatedPyramid.h"
 #include "Geometry/Records/interface/CaloGeometryRecord.h"
+#include "FWCore/Framework/interface/Event.h"
 
 #include "DataFormats/Math/interface/Point3D.h"
 #include "DataFormats/EgammaReco/interface/BasicCluster.h"
@@ -52,21 +53,24 @@ class HGCalImagingAlgo
 		      geometry(0), ddd(0), 
 		      //topology(*thetopology_p), 
 		      algoId(reco::CaloCluster::undefined),
-		      verbosity(pERROR){
+		      verbosity(pERROR),
+		      eventsToDisplay(0){
  }
   
   HGCalImagingAlgo(float delta_c_in, double kappa_in, double ecut_in,
 		   const HGCalGeometry *thegeometry_p,
 		   //		   const CaloSubdetectorTopology *thetopology_p,
 		   reco::CaloCluster::AlgoId algoId_in,
-		   VerbosityLevel the_verbosity = pERROR) : delta_c(delta_c_in), kappa(kappa_in), 
-							    ecut(ecut_in),    
-							    cluster_offset(0),
-							    sigma2(1.0),
-							    geometry(thegeometry_p), 
-							    //topology(*thetopology_p), 
-							    algoId(algoId_in),
-							    verbosity(the_verbosity){
+		   VerbosityLevel the_verbosity = pERROR,
+		   unsigned int theEventsToDisplay = 0) : delta_c(delta_c_in), kappa(kappa_in), 
+						      ecut(ecut_in),    
+						      cluster_offset(0),
+						      sigma2(1.0),
+						      geometry(thegeometry_p), 
+						      //topology(*thetopology_p), 
+						      algoId(algoId_in),
+						      verbosity(the_verbosity),
+						      eventsToDisplay(theEventsToDisplay){
   }
   
   HGCalImagingAlgo(float delta_c_in, double kappa_in, double ecut_in,
@@ -74,14 +78,16 @@ class HGCalImagingAlgo
 		   const HGCalGeometry *thegeometry_p,
 		   //		   const CaloSubdetectorTopology *thetopology_p,
 		   reco::CaloCluster::AlgoId algoId_in,
-		   VerbosityLevel the_verbosity = pERROR) : delta_c(delta_c_in), kappa(kappa_in), 
-							    ecut(ecut_in),    
-							    cluster_offset(0),
-							    sigma2(std::pow(showerSigma,2.0)),
-							    geometry(thegeometry_p), 
-							    //topology(*thetopology_p), 
-							    algoId(algoId_in),
-							    verbosity(the_verbosity){
+		   VerbosityLevel the_verbosity = pERROR,
+		   unsigned int theEventsToDisplay = 0) : delta_c(delta_c_in), kappa(kappa_in), 
+							  ecut(ecut_in),    
+							  cluster_offset(0),
+							  sigma2(std::pow(showerSigma,2.0)),
+							  geometry(thegeometry_p), 
+							  //topology(*thetopology_p), 
+							  algoId(algoId_in),
+							  verbosity(the_verbosity),
+							  eventsToDisplay(theEventsToDisplay){
   }
 
   virtual ~HGCalImagingAlgo()
@@ -106,6 +112,8 @@ class HGCalImagingAlgo
     clusters_v.clear();
     cluster_offset = 0;
   }
+  // @@EM ToDo: debugging utilities (to be removed in the future)
+  void dumpToDisplayMaybe(const edm::Event&);
   /// point in the space
   typedef math::XYZPoint Point;
 
@@ -140,7 +148,10 @@ class HGCalImagingAlgo
   // The verbosity level
   VerbosityLevel verbosity;
 
+  // Number of events to be dumped for standalone display 
+  unsigned int eventsToDisplay;
   
+
   struct Hexel {
 
     double x;
@@ -219,6 +230,53 @@ class HGCalImagingAlgo
   void shareEnergy(const std::vector<KDNode>&, 
 		   const std::vector<unsigned>&,
 		   std::vector<std::vector<double> >&);
+
+
+  class DumpToDisplay{
+    
+  public:
+    
+    struct hit{
+      uint32_t id;
+      float energy;
+      float density;
+      float distance;
+      uint32_t cindex;
+      uint32_t flags;
+      bool isBorder()const {return (bool)flags&0x1;}
+      bool isHalo()const {return (bool)flags&0x2;}
+    };
+    std::string getFileName(const edm::Event& iEvent){
+      char filename[50];
+      sprintf(filename,"run%06dev%010llu.dat",iEvent.run(),iEvent.id().event());
+      std::string fileName(filename);
+      std::cout << "creating file " << fileName << std::endl;
+      return fileName;
+    }
+    void writeAll(std::vector< std::vector<HGCalImagingAlgo::KDNode> >&hits, std::string fileName){
+      FILE *file = fopen(fileName.c_str(),"w+");
+      for (unsigned int i = 0; i < hits.size(); i++){
+	std::vector< HGCalImagingAlgo::KDNode >::iterator it;
+	for (it = hits[i].begin(); it != hits[i].end(); it++){
+	  hit h;
+	  h.id         = (*it).data.detid;
+	  h.energy     = (*it).data.weight;
+	  h.density    = (*it).data.rho;
+	h.distance   = (*it).data.delta;
+	h.cindex     = i;
+	h.flags      = (uint32_t)(*it).data.isBorder | ((uint32_t)(*it).data.isHalo << 1);
+	fwrite(&h,sizeof(hit),1,file);
+	std::cout << h.id << " " << h.energy << " " << h.density << " " << h.distance << " " << h.cindex 
+		  << " " << h.flags << " " << (*it).data.isBorder << " " << (*it).data.isHalo << std::endl;
+	}
+      }
+      fclose(file);
+    }
+  };
+  // Utilities to dump internal hit structure for event display 
+  DumpToDisplay dumper;
+  
+  
  };
 
 #endif

@@ -56,10 +56,12 @@ HGCalClusterTestProducer::HGCalClusterTestProducer(const edm::ParameterSet &ps) 
   algo(0),doSharing(ps.getParameter<bool>("doSharing")),
   detector(ps.getParameter<std::string >("detector")),              //one of EE, EF or "both"
   verbosity((HGCalImagingAlgo::VerbosityLevel)ps.getUntrackedParameter<unsigned int>("verbosity",3)){
+
+
   double ecut = ps.getParameter<double>("ecut");
   double delta_c = ps.getParameter<double>("deltac");
   double kappa = ps.getParameter<double>("kappa");
-
+  
   
   if(detector=="both"){
     hits_ee_token = consumes<HGCRecHitCollection>(edm::InputTag("HGCalRecHit:HGCEERecHits"));
@@ -74,9 +76,11 @@ HGCalClusterTestProducer::HGCalClusterTestProducer(const edm::ParameterSet &ps) 
   }
   if(doSharing){
     double showerSigma =  ps.getParameter<double>("showerSigma");
-    algo = new HGCalImagingAlgo(delta_c, kappa, ecut, showerSigma, 0, algoId, verbosity);
+    algo = new HGCalImagingAlgo(delta_c, kappa, ecut, showerSigma, 0, algoId, verbosity,
+				ps.getUntrackedParameter<unsigned int>("eventsToDisplay",0));
   }else{
-    algo = new HGCalImagingAlgo(delta_c, kappa, ecut, 0, algoId, verbosity);
+    algo = new HGCalImagingAlgo(delta_c, kappa, ecut, 0, algoId, verbosity,
+				ps.getUntrackedParameter<unsigned int>("eventsToDisplay",0));
   }
 
   // hydraTokens[0] = consumes<std::vector<reco::PFCluster> >( edm::InputTag("FakeClusterGen") );
@@ -145,6 +149,7 @@ void HGCalClusterTestProducer::produce(edm::Event& evt,
 
   evt.put(std::move(clusters));
   evt.put(std::move(clusters_sharing),"sharing");
+  algo->dumpToDisplayMaybe(evt);
 }
 
 #endif
