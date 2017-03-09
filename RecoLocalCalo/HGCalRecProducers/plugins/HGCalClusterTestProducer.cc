@@ -20,6 +20,7 @@
 #include <iostream>
 
 #include "RecoLocalCalo/HGCalRecAlgos/interface/HGCalImagingAlgo.h"
+#include "RecoLocalCalo/HGCalRecAlgos/interface/HGCalOneStepAlgo.h"
 #include "RecoLocalCalo/HGCalRecAlgos/interface/HGCalDepthPreClusterer.h"
 #include "RecoLocalCalo/HGCalRecAlgos/interface/HGCal3DClustering.h"
 
@@ -45,12 +46,14 @@ class HGCalClusterTestProducer : public edm::stream::EDProducer<> {
   reco::CaloCluster::AlgoId algoId;
 
   std::unique_ptr<HGCalImagingAlgo> algo;
+  std::unique_ptr<HGCalOneStepAlgo> algo_onestep;
   //  std::unique_ptr<HGCalDepthPreClusterer> multicluster_algo;
   std::unique_ptr<HGCal3DClustering> multicluster_algo;
+  bool doOneStep;
   bool doSharing;
   std::string detector;
 
-  HGCalImagingAlgo::VerbosityLevel verbosity;
+  hgcal::VerbosityLevel verbosity;
   //  edm::EDGetTokenT<std::vector<reco::PFCluster> > hydraTokens[2];
 };
 
@@ -58,9 +61,10 @@ DEFINE_FWK_MODULE(HGCalClusterTestProducer);
 
 HGCalClusterTestProducer::HGCalClusterTestProducer(const edm::ParameterSet &ps) :
   algoId(reco::CaloCluster::undefined),
+  doOneStep(ps.getParameter<bool>("useOneStep")),
   doSharing(ps.getParameter<bool>("doSharing")),
   detector(ps.getParameter<std::string >("detector")),              //one of EE, EF or "both"
-  verbosity((HGCalImagingAlgo::VerbosityLevel)ps.getUntrackedParameter<unsigned int>("verbosity",3)){
+  verbosity((hgcal::VerbosityLevel)ps.getUntrackedParameter<unsigned int>("verbosity",3)){
   double ecut = ps.getParameter<double>("ecut");
   double delta_c = ps.getParameter<double>("deltac");
   double kappa = ps.getParameter<double>("kappa");
@@ -96,8 +100,10 @@ HGCalClusterTestProducer::HGCalClusterTestProducer(const edm::ParameterSet &ps) 
   if(doSharing){
     double showerSigma =  ps.getParameter<double>("showerSigma");
     algo = std::make_unique<HGCalImagingAlgo>(delta_c, kappa, ecut, showerSigma, algoId, dependSensor, dEdXweights, thicknessCorrection, fcPerMip, fcPerEle, nonAgedNoises, noiseMip, verbosity);
+    algo_onestep = std::make_unique<HGCalOneStepAlgo>(delta_c, kappa, ecut, showerSigma, algoId, dependSensor, dEdXweights, thicknessCorrection, fcPerMip, fcPerEle, nonAgedNoises, noiseMip, verbosity);
   }else{
     algo = std::make_unique<HGCalImagingAlgo>(delta_c, kappa, ecut, algoId, dependSensor, dEdXweights, thicknessCorrection, fcPerMip, fcPerEle, nonAgedNoises, noiseMip, verbosity);
+    algo_onestep = std::make_unique<HGCalOneStepAlgo>(delta_c, kappa, ecut, algoId, dependSensor, dEdXweights, thicknessCorrection, fcPerMip, fcPerEle, nonAgedNoises, noiseMip, verbosity);
   }
 
   auto sumes = consumesCollector();
@@ -132,39 +138,55 @@ void HGCalClusterTestProducer::produce(edm::Event& evt,
 
   algo->getEventSetup(es);
 
+  algo_onestep->reset();
+
+  algo_onestep->getEventSetup(es);
+
   multicluster_algo->getEvent(evt);
   multicluster_algo->getEventSetup(es);
 
   switch(algoId){
   case reco::CaloCluster::hgcal_em:
     evt.getByToken(hits_ee_token,ee_hits);
-    algo->populate(*ee_hits);
+    if(doOneStep) algo_onestep->populate(*ee_hits);
+    else algo->populate(*ee_hits);
     break;
   case  reco::CaloCluster::hgcal_had:    
     evt.getByToken(hits_fh_token,fh_hits);
     evt.getByToken(hits_bh_token,bh_hits);
     if( fh_hits.isValid() ) {
-      algo->populate(*fh_hits);
+      if(doOneStep) algo_onestep->populate(*fh_hits);
+      else algo->populate(*fh_hits);
     } else if ( bh_hits.isValid() ) {
-      algo->populate(*bh_hits);
+      if(doOneStep) algo_onestep->populate(*bh_hits);
+      else algo->populate(*bh_hits);
     }
     break;
   case reco::CaloCluster::hgcal_mixed:
     evt.getByToken(hits_ee_token,ee_hits);
-    algo->populate(*ee_hits);
+    if(doOneStep) algo_onestep->populate(*ee_hits);
+    else algo->populate(*ee_hits);
     evt.getByToken(hits_fh_token,fh_hits);
-    algo->populate(*fh_hits);
+    if(doOneStep) algo_onestep->populate(*fh_hits);
+    else algo->populate(*fh_hits);
     evt.getByToken(hits_bh_token,bh_hits);
-    algo->populate(*bh_hits);
+    if(doOneStep) algo_onestep->populate(*bh_hits);
+    else algo->populate(*bh_hits);
     break;
   default:
     break;
   }
-  algo->makeClusters();
-  *clusters = algo->getClusters(false);
-  if(doSharing)
-    *clusters_sharing = algo->getClusters(true);
-
+  if(doOneStep) algo_onestep->makeClusters();
+  else algo->makeClusters();
+  if(doOneStep)*clusters = algo_onestep->getClusters(false);
+  else *clusters = algo->getClusters(false);
+  std::cout << "cluster vector size " << clusters->size() << std::endl;
+  if(doSharing){
+    if(doOneStep)
+      *clusters_sharing = algo_onestep->getClusters(true);
+    else
+      *clusters_sharing = algo->getClusters(true);
+  }
   //std::cout << "Density based cluster size: " << clusters->size() << std::endl;
   //if(doSharing)
   //std::cout << "Sharing clusters size     : " << clusters_sharing->size() << std::endl;

@@ -13,6 +13,7 @@ hgcalLayerClusters =  cms.EDProducer(
     "HGCalClusterTestProducer",
     detector = cms.string("all"),
     doSharing = cms.bool(False),
+    doOneStep = cms.bool(False),
     deltac = cms.double(2.),
     ecut = cms.double(0.01),
     kappa = cms.double(10.),

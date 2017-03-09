@@ -79,7 +79,6 @@ float ClusterTools::getClusterHadronFraction(const reco::CaloCluster& clus) cons
   return fraction;
 }
 
-
 math::XYZPoint ClusterTools::getMultiClusterPosition(const reco::HGCalMultiCluster& clu, double vz) const {
   if( clu.clusters().size() == 0 ) return math::XYZPoint();
   /// *******ALL CRAP*********
@@ -171,6 +170,28 @@ math::XYZPoint ClusterTools::getMultiClusterPosition(const reco::HGCalMultiClust
     totweight += weight;
   }
   //  std::cout << "here 3" << std::endl;
+  acc_x /= totweight;
+  acc_y /= totweight;
+  acc_z /= totweight;
+
+  //  acc_z -= 0.5*sqrt(acc_x*acc_x+acc_y*acc_y)/acc_z;
+  return math::XYZPoint(acc_x,acc_y,acc_z);
+}
+
+math::XYZPoint ClusterTools::getMultiClusterPositionFor3DComponents(const reco::HGCalMultiCluster& clu, double vz) const {
+  if( clu.clusters().size() == 0 ) return math::XYZPoint();
+
+  double acc_x = 0.0;
+  double acc_y = 0.0;
+  double acc_z = 0.0;
+  double totweight = 0.;
+  for( const auto& ptr : clu.clusters() ) {   
+    const double weight = ptr->energy() * ptr->size();
+    acc_x += ptr->x()*weight;    
+    acc_y += ptr->y()*weight;    
+    acc_z += (ptr->z()-vz)*weight; 
+    totweight += weight;   
+  }
   acc_x /= totweight;
   acc_y /= totweight;
   acc_z /= totweight;

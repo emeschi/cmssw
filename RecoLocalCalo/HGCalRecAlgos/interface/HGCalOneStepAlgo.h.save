@@ -1,5 +1,5 @@
-#ifndef RecoLocalCalo_HGCalRecAlgos_HGCalImagingAlgo_h
-#define RecoLocalCalo_HGCalRecAlgos_HGCalImagingAlgo_h
+#ifndef RecoLocalCalo_HGCalRecAlgos_HGCalOneStepAlgo_h
+#define RecoLocalCalo_HGCalRecAlgos_HGCalOneStepAlgo_h
 
 #include "Geometry/HGCalGeometry/interface/HGCalGeometry.h"
 #include "Geometry/CaloTopology/interface/HGCalTopology.h"
@@ -27,21 +27,21 @@
 
 
 
-class HGCalImagingAlgo 
+
+class HGCalOneStepAlgo 
 {
 
   
  public:
   
-
   
- HGCalImagingAlgo() : delta_c(0.), kappa(1.), ecut(0.), cluster_offset(0),
+ HGCalOneStepAlgo() : delta_c(0.), kappa(1.), ecut(0.), cluster_offset(0),
 		      sigma2(1.0),
 		      algoId(reco::CaloCluster::undefined),
 		      verbosity(hgcal::pERROR){
  }
 
-  HGCalImagingAlgo(float delta_c_in, double kappa_in, double ecut_in,
+  HGCalOneStepAlgo(float delta_c_in, double kappa_in, double ecut_in,
 		   //		   const CaloSubdetectorTopology *thetopology_p,
 		   reco::CaloCluster::AlgoId algoId_in,
                    bool dependSensor_in,
@@ -64,14 +64,13 @@ class HGCalImagingAlgo
                                                             nonAgedNoises(nonAgedNoises_in),
                                                             noiseMip(noiseMip_in),
 							    verbosity(the_verbosity),
-							    points(2*(maxlayer+1)),
-							    minpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    maxpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    zees(2*(maxlayer+1),0.)
+							    points(2),
+							    minpos(2,{ {0.0f,0.0f,0.0f} }),
+							    maxpos(2,{ {0.0f,0.0f,0.0f} })
   {
   }
 
-  HGCalImagingAlgo(float delta_c_in, double kappa_in, double ecut_in,
+  HGCalOneStepAlgo(float delta_c_in, double kappa_in, double ecut_in,
 		   double showerSigma, 
 		   //		   const CaloSubdetectorTopology *thetopology_p,
 		   reco::CaloCluster::AlgoId algoId_in,
@@ -95,14 +94,13 @@ class HGCalImagingAlgo
                                                             nonAgedNoises(nonAgedNoises_in),
                                                             noiseMip(noiseMip_in),
 							    verbosity(the_verbosity),
-							    points(2*(maxlayer+1)),
-							    minpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    maxpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    zees(2*(maxlayer+1),0.)
+							    points(2),
+							    minpos(2,{ {0.0f,0.0f,0.0f} }),
+							    maxpos(2,{ {0.0f,0.0f,0.0f} })
   {
   }
 
-  virtual ~HGCalImagingAlgo()
+  virtual ~HGCalOneStepAlgo()
     {
     }
 
@@ -183,6 +181,7 @@ class HGCalImagingAlgo
     double x;
     double y;
     double z;
+    double lz;
     bool isHalfCell;
     double weight;
     double fraction;
@@ -193,16 +192,17 @@ class HGCalImagingAlgo
     bool isBorder;
     bool isHalo;
     int clusterIndex;
+    unsigned int nNeighbors;
     float sigmaNoise;
     float thickness;
     const hgcal::RecHitTools *tools;
 
-  Hexel(const HGCRecHit &hit, DetId id_in, bool isHalf, float sigmaNoise_in, float thickness_in, const hgcal::RecHitTools *tools_in) : 
-      x(0.),y(0.),z(0.),isHalfCell(isHalf),
+    Hexel(const HGCRecHit &hit, DetId id_in, bool isHalf, float sigmaNoise_in, float thickness_in, const hgcal::RecHitTools *tools_in) : 
+      x(0.),y(0.),z(0.),lz(0.),isHalfCell(isHalf),
       weight(0.), fraction(1.0), detid(id_in), rho(0.), delta(0.),
       nearestHigher(-1), isBorder(false), isHalo(false), 
-	clusterIndex(-1), sigmaNoise(sigmaNoise_in), thickness(thickness_in), 
-	tools(tools_in)
+      clusterIndex(-1), nNeighbors(0), sigmaNoise(sigmaNoise_in), thickness(thickness_in), 
+      tools(tools_in)
     {
       const GlobalPoint position( std::move( tools->getPosition( detid ) ) );
       
@@ -210,13 +210,14 @@ class HGCalImagingAlgo
       x = position.x();
       y = position.y();
       z = position.z();
-      
+      lz = double(tools->getLayerWithOffset(detid));
     }
     Hexel() : 
-      x(0.),y(0.),z(0.),isHalfCell(false),
+      x(0.),y(0.),z(0.),lz(0.),isHalfCell(false),
       weight(0.), fraction(1.0), detid(), rho(0.), delta(0.),
       nearestHigher(-1), isBorder(false), isHalo(false), 
       clusterIndex(-1),
+      nNeighbors(0),
       sigmaNoise(0.),
       thickness(0.),
       tools(0)
@@ -227,8 +228,8 @@ class HGCalImagingAlgo
     
   };
 
-  typedef KDTreeLinkerAlgo<Hexel,2> KDTree;
-  typedef KDTreeNodeInfoT<Hexel,2> KDNode;
+  typedef KDTreeLinkerAlgo<Hexel,3> KDTree;
+  typedef KDTreeNodeInfoT<Hexel,3> KDNode;
 
 
   // A vector of vectors of KDNodes holding an Hexel in the clusters - to be used to build CaloClusters of DetIds
@@ -245,9 +246,8 @@ class HGCalImagingAlgo
   std::vector<std::vector<KDNode> > points; //a vector of vectors of hexels, one for each layer
   //@@EM todo: the number of layers should be obtained programmatically - the range is 1-n instead of 0-n-1...
 
-  std::vector<std::array<float,2> > minpos;
-  std::vector<std::array<float,2> > maxpos;
-  std::vector<float> zees;
+  std::vector<std::array<float,3> > minpos;
+  std::vector<std::array<float,3> > maxpos;
 
 
   //these functions should be in a helper class.
@@ -255,7 +255,7 @@ class HGCalImagingAlgo
   double distance(const Hexel &pt1, const Hexel &pt2); //2-d distance on the layer (x-y)
   double calculateLocalDensity(std::vector<KDNode> &, KDTree &); //return max density
   double calculateDistanceToHigher(std::vector<KDNode> &, KDTree &);
-  int findAndAssignClusters(std::vector<KDNode> &, KDTree &, double, KDTreeBox &);
+  int findAndAssignClusters(std::vector<KDNode> &, KDTree &, double, KDTreeCube &);
   math::XYZPoint calculatePosition(std::vector<KDNode> &);
 
   // attempt to find subclusters within a given set of hexels

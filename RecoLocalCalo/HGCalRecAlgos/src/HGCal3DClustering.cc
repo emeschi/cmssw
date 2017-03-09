@@ -112,7 +112,7 @@ std::vector<reco::HGCalMultiCluster> HGCal3DClustering::makeClusters(const reco:
       if( temp.size() > minClusters ) {
 	thePreClusters.push_back(temp);
 	auto& back = thePreClusters.back();
-	back.setPosition(clusterTools->getMultiClusterPosition(back));
+	back.setPosition(clusterTools->getMultiClusterPositionFor3DComponents(back));
 	back.setEnergy(clusterTools->getMultiClusterEnergy(back));
       }
 

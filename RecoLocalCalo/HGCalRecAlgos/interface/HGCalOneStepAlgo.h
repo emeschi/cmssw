@@ -1,5 +1,5 @@
-#ifndef RecoLocalCalo_HGCalRecAlgos_HGCalImagingAlgo_h
-#define RecoLocalCalo_HGCalRecAlgos_HGCalImagingAlgo_h
+#ifndef RecoLocalCalo_HGCalRecAlgos_HGCalOneStepAlgo_h
+#define RecoLocalCalo_HGCalRecAlgos_HGCalOneStepAlgo_h
 
 #include "Geometry/HGCalGeometry/interface/HGCalGeometry.h"
 #include "Geometry/CaloTopology/interface/HGCalTopology.h"
@@ -23,25 +23,26 @@
 #include <set>
 
 
-#include "KDTreeLinkerAlgoT.h"
+//#include "KDTreeLinkerAlgoT.h"
+#include "nanoflann.hpp"
 
 
 
-class HGCalImagingAlgo 
+
+class HGCalOneStepAlgo 
 {
 
   
  public:
   
-
   
- HGCalImagingAlgo() : delta_c(0.), kappa(1.), ecut(0.), cluster_offset(0),
+ HGCalOneStepAlgo() : delta_c(0.), kappa(1.), ecut(0.), cluster_offset(0),
 		      sigma2(1.0),
 		      algoId(reco::CaloCluster::undefined),
 		      verbosity(hgcal::pERROR){
  }
 
-  HGCalImagingAlgo(float delta_c_in, double kappa_in, double ecut_in,
+  HGCalOneStepAlgo(float delta_c_in, double kappa_in, double ecut_in,
 		   //		   const CaloSubdetectorTopology *thetopology_p,
 		   reco::CaloCluster::AlgoId algoId_in,
                    bool dependSensor_in,
@@ -64,14 +65,13 @@ class HGCalImagingAlgo
                                                             nonAgedNoises(nonAgedNoises_in),
                                                             noiseMip(noiseMip_in),
 							    verbosity(the_verbosity),
-							    points(2*(maxlayer+1)),
-							    minpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    maxpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    zees(2*(maxlayer+1),0.)
+							    points(2),
+							    minpos(2,{ {0.0f,0.0f,0.0f} }),
+							    maxpos(2,{ {0.0f,0.0f,0.0f} })
   {
   }
 
-  HGCalImagingAlgo(float delta_c_in, double kappa_in, double ecut_in,
+  HGCalOneStepAlgo(float delta_c_in, double kappa_in, double ecut_in,
 		   double showerSigma, 
 		   //		   const CaloSubdetectorTopology *thetopology_p,
 		   reco::CaloCluster::AlgoId algoId_in,
@@ -95,14 +95,13 @@ class HGCalImagingAlgo
                                                             nonAgedNoises(nonAgedNoises_in),
                                                             noiseMip(noiseMip_in),
 							    verbosity(the_verbosity),
-							    points(2*(maxlayer+1)),
-							    minpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    maxpos(2*(maxlayer+1),{ {0.0f,0.0f} }),
-							    zees(2*(maxlayer+1),0.)
+							    points(2),
+							    minpos(2,{ {0.0f,0.0f,0.0f} }),
+							    maxpos(2,{ {0.0f,0.0f,0.0f} })
   {
   }
 
-  virtual ~HGCalImagingAlgo()
+  virtual ~HGCalOneStepAlgo()
     {
     }
 
@@ -124,11 +123,11 @@ class HGCalImagingAlgo
     current_v.clear();
     clusters_v.clear();
     cluster_offset = 0;
-    for( std::vector< std::vector<KDNode> >::iterator it = points.begin(); it != points.end(); it++)
+    for( std::vector< HexelCloud >::iterator it = points.begin(); it != points.end(); it++)
       {
         // for( std::vector<KDNode>::iterator jt = it->begin(); jt != it->end(); jt++)
         //   delete jt->data;
-        it->clear();
+        it->pts.clear();
       }
     for(unsigned int i = 0; i < minpos.size(); i++)
       {
@@ -183,6 +182,7 @@ class HGCalImagingAlgo
     double x;
     double y;
     double z;
+    double lz;
     bool isHalfCell;
     double weight;
     double fraction;
@@ -193,16 +193,17 @@ class HGCalImagingAlgo
     bool isBorder;
     bool isHalo;
     int clusterIndex;
+    unsigned int nNeighbors;
     float sigmaNoise;
     float thickness;
     const hgcal::RecHitTools *tools;
 
-  Hexel(const HGCRecHit &hit, DetId id_in, bool isHalf, float sigmaNoise_in, float thickness_in, const hgcal::RecHitTools *tools_in) : 
-      x(0.),y(0.),z(0.),isHalfCell(isHalf),
+    Hexel(const HGCRecHit &hit, DetId id_in, bool isHalf, float sigmaNoise_in, float thickness_in, const hgcal::RecHitTools *tools_in) : 
+      x(0.),y(0.),z(0.),lz(0.),isHalfCell(isHalf),
       weight(0.), fraction(1.0), detid(id_in), rho(0.), delta(0.),
       nearestHigher(-1), isBorder(false), isHalo(false), 
-	clusterIndex(-1), sigmaNoise(sigmaNoise_in), thickness(thickness_in), 
-	tools(tools_in)
+      clusterIndex(-1), nNeighbors(0), sigmaNoise(sigmaNoise_in), thickness(thickness_in), 
+      tools(tools_in)
     {
       const GlobalPoint position( std::move( tools->getPosition( detid ) ) );
       
@@ -210,13 +211,14 @@ class HGCalImagingAlgo
       x = position.x();
       y = position.y();
       z = position.z();
-      
+      lz = double(tools->getLayerWithOffset(detid))/2.;
     }
     Hexel() : 
-      x(0.),y(0.),z(0.),isHalfCell(false),
+      x(0.),y(0.),z(0.),lz(0.),isHalfCell(false),
       weight(0.), fraction(1.0), detid(), rho(0.), delta(0.),
       nearestHigher(-1), isBorder(false), isHalo(false), 
       clusterIndex(-1),
+      nNeighbors(0),
       sigmaNoise(0.),
       thickness(0.),
       tools(0)
@@ -227,45 +229,74 @@ class HGCalImagingAlgo
     
   };
 
-  typedef KDTreeLinkerAlgo<Hexel,2> KDTree;
-  typedef KDTreeNodeInfoT<Hexel,2> KDNode;
+  struct HexelCloud
+  {
+    
+    std::vector<Hexel>  pts;
+    
+    // Must return the number of data points
+    inline size_t kdtree_get_point_count() const { return pts.size(); }
+    
+    // Returns the distance between the vector "p1[0:size-1]" and the data point with index "idx_p2" stored in the class:
+    inline double kdtree_distance(const double *p1, const size_t idx_p2,size_t /*size*/) const
+    {
+      const double d0=p1[0]-pts[idx_p2].x;
+      const double d1=p1[1]-pts[idx_p2].y;
+      const double d2=p1[2]-pts[idx_p2].lz;
+      return d0*d0+d1*d1+d2*d2;
+    }
+    
+    // Returns the dim'th component of the idx'th point in the class:
+    // Since this is inlined and the "dim" argument is typically an immediate value, the
+    //  "if/else's" are actually solved at compile time.
+    inline double kdtree_get_pt(const size_t idx, int dim) const
+    {
+      if (dim==0) return pts[idx].x;
+      else if (dim==1) return pts[idx].y;
+      else return pts[idx].lz;
+    }
+    // Optional bounding-box computation: return false to default to a standard bbox computation loop.
+    //   Return true if the BBOX was already computed by the class and returned in "bb" so it can be avoided to redo it again.
+    //   Look at bb.size() to find out the expected dimensionality (e.g. 2 or 3 for point clouds)
+    template <class BBOX>
+    bool kdtree_get_bbox(BBOX& /*bb*/) const { return false; }
+    
+  };
+
+  typedef nanoflann::KDTreeSingleIndexAdaptor<
+    nanoflann::L2_Simple_Adaptor<double, HexelCloud > ,
+    HexelCloud,
+    3 /* dim */
+    > my_kd_tree_t;
 
 
-  // A vector of vectors of KDNodes holding an Hexel in the clusters - to be used to build CaloClusters of DetIds
-  std::vector< std::vector<KDNode> > current_v;
+  // A vector of vectors of KDNodes holding  Hexels in a cluster - to be used to build CaloClusters of DetIds
+  std::vector< std::vector<Hexel> > current_v;
 
-  std::vector<size_t> sort_by_delta(const std::vector<KDNode> &v){
+  std::vector<size_t> sort_by_delta(const std::vector<Hexel> &v){
     std::vector<size_t> idx(v.size());
     for (size_t i = 0; i != idx.size(); ++i) idx[i] = i;
     sort(idx.begin(), idx.end(),
-	 [&v](size_t i1, size_t i2) {return v[i1].data.delta > v[i2].data.delta;});
+	 [&v](size_t i1, size_t i2) {return v[i1].delta > v[i2].delta;});
     return idx;
   }
 
-  std::vector<std::vector<KDNode> > points; //a vector of vectors of hexels, one for each layer
-  //@@EM todo: the number of layers should be obtained programmatically - the range is 1-n instead of 0-n-1...
+  std::vector<HexelCloud> points; //a vector of vectors of hexels, one for each z side
 
-  std::vector<std::array<float,2> > minpos;
-  std::vector<std::array<float,2> > maxpos;
-  std::vector<float> zees;
+  //bounding box
+  std::vector<std::array<float,3> > minpos;
+  std::vector<std::array<float,3> > maxpos;
 
 
   //these functions should be in a helper class.
   double distance2(const Hexel &pt1, const Hexel &pt2); //distance squared
   double distance(const Hexel &pt1, const Hexel &pt2); //2-d distance on the layer (x-y)
-  double calculateLocalDensity(std::vector<KDNode> &, KDTree &); //return max density
-  double calculateDistanceToHigher(std::vector<KDNode> &, KDTree &);
-  int findAndAssignClusters(std::vector<KDNode> &, KDTree &, double, KDTreeBox &);
-  math::XYZPoint calculatePosition(std::vector<KDNode> &);
+  double calculateLocalDensity(HexelCloud &, my_kd_tree_t &); //return max density
+  double calculateDistanceToHigher(HexelCloud &);
+  int findAndAssignClusters(HexelCloud &, my_kd_tree_t &, double);
+  math::XYZPoint calculatePosition(std::vector<Hexel> &);
 
-  // attempt to find subclusters within a given set of hexels
-  std::vector<unsigned> findLocalMaximaInCluster(const std::vector<KDNode>&);
-  math::XYZPoint calculatePositionWithFraction(const std::vector<KDNode>&, const std::vector<double>&);
-  double calculateEnergyWithFraction(const std::vector<KDNode>&, const std::vector<double>&);
-  // outputs
-  void shareEnergy(const std::vector<KDNode>&, 
-		   const std::vector<unsigned>&,
-		   std::vector<std::vector<double> >&);
+
  };
 
 #endif
